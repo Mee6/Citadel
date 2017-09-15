@@ -29,6 +29,6 @@ defmodule Citadel.Mixfile do
   #
   # Type "mix help deps" for more examples and options
   defp deps do
-    []
+    [{:plumbus, github: "cookkkie/plumbus", tag: "v0.1.1"}]
   end
 end

@@ -1,7 +1,8 @@
 defmodule Citadel.Groups do
   use GenServer
 
-  alias Citadel.Utils.{Partitioner, Mnesia}
+  alias Citadel.Utils.Partitioner
+  alias Plumbus.Mnesia
 
   @table :groups_table
 

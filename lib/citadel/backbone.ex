@@ -1,5 +1,5 @@
 defmodule Citadel.Backbone do
-  alias Citadel.Utils.Mnesia
+  alias Plumbus.Mnesia
 
   def init do
     Mnesia.init()

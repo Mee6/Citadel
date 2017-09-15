@@ -40,8 +40,7 @@ defmodule Citadel.Utils.Partitioner do
     {:noreply, {module, partitions}}
   end
 
-  defp get_partition(id, state) do
-    {module, partitions} = state
+  defp get_partition(id, {_, partitions}=state) do
     case elem(partitions, id) do
       nil ->
         {:ok, pid} = start_partition(state)
