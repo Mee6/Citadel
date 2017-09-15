@@ -1,5 +1,6 @@
 defmodule Citadel.Registry do
-  alias Citadel.Utils.{Partitioner, Mnesia}
+  alias Citadel.Utils.Partitioner
+  alias Plumbus.Mnesia
 
   @table :registry_table
 
