@@ -1,6 +1,8 @@
 defmodule Citadel.Supervisor do
   use GenServer
 
+  require Logger
+
   def worker(mod, args, name) do
     {mod, args, name}
   end
@@ -14,7 +16,7 @@ defmodule Citadel.Supervisor do
     {:ok, {sup_name, Map.new(workers, &init_worker(sup_name, &1))}} 
   end
 
-  defp init_worker(sup_name, {mod, args, worker_name}=spec) do
+  defp init_worker(sup_name, {_mod, _args, worker_name}=spec) do
     worker_pid = lookup(sup_name, worker_name)
     do_init_worker(sup_name, spec, worker_pid)
   end
@@ -24,7 +26,24 @@ defmodule Citadel.Supervisor do
     {:ok, pid} = apply(mod, :start_link, args)
     worker = %{spec: spec, pid: pid}
     register(sup_name, worker_name, pid)
+    send(pid, :start)
+    Logger.info "[#{sup_name} supervisor] Started worker #{worker_name} (fresh start)"
     {worker_name, worker}
+  end
+
+  defp do_init_worker(sup_name, spec, pid) do
+    case GenServer.call(pid, :start_handoff) do
+      :restart ->
+        do_init_worker(sup_name, spec, nil)
+      {:handoff, handoff_state} ->
+        {mod, args, worker_name} = spec
+        {:ok, pid} = apply(mod, :start_link, args)
+        worker = %{spec: spec, pid: pid}
+        register(sup_name, worker_name, pid)
+        :ok = GenServer.call(pid, {:end_handoff, handoff_state})
+        Logger.info "[#{sup_name} supervisor] Started #{worker_name} (handoff)"
+        {worker_name, worker}
+    end
   end
 
   def handle_info({:EXIT, pid, :normal}, {sup_name, workers}) do
@@ -36,7 +55,7 @@ defmodule Citadel.Supervisor do
   end
 
   def handle_info({:EXIT, pid, reason}, {sup_name, workers}) when reason != :normal do
-    worker = Enum.find(workers, fn {worker_name, worker} ->
+    worker = Enum.find(workers, fn {_, worker} ->
       pid == worker.pid
     end)
 
@@ -51,7 +70,7 @@ defmodule Citadel.Supervisor do
     {:noreply, {sup_name, workers}}
   end
 
-  def handle_info(msg, state) do
+  def handle_info(_msg, state) do
     {:noreply, state}
   end
 
