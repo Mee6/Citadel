@@ -19,13 +19,13 @@ defmodule Citadel.Utils.Partitioner do
     {:ok, {module, Tuple.duplicate(nil, System.schedulers)}}
   end
 
-  def which_partition(partitioner, timeout \\ 5_000) do
-    GenServer.call(partitioner, :which_partition, timeout)
+  def which_partition(partitioner, key, timeout \\ 5_000) do
+    GenServer.call(partitioner, {:which_partition, key}, timeout)
   end
 
-  def handle_call(:which_partition, from, {module, partitions}=state) do
+  def handle_call({:which_partition, key}, _from, {module, partitions}=state) do
     {partition_pid, partitions} = 
-      from
+      key
       |> :erlang.phash2(tuple_size(partitions))
       |> get_partition(state)
 
