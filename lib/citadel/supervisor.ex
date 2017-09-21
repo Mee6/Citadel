@@ -27,7 +27,7 @@ defmodule Citadel.Supervisor do
     worker = %{spec: spec, pid: pid}
     register(sup_name, worker_name, pid)
     send(pid, :start)
-    Logger.info "[#{sup_name} supervisor] Started worker #{worker_name} (fresh start)"
+    Logger.info "[#{sup_name} supervisor] Started worker #{inspect worker_name} (fresh start)"
     {worker_name, worker}
   end
 
@@ -41,7 +41,7 @@ defmodule Citadel.Supervisor do
         worker = %{spec: spec, pid: pid}
         register(sup_name, worker_name, pid)
         :ok = GenServer.call(pid, {:end_handoff, handoff_state})
-        Logger.info "[#{sup_name} supervisor] Started #{worker_name} (handoff)"
+        Logger.info "[#{sup_name} supervisor] Started #{inspect worker_name} (handoff)"
         {worker_name, worker}
     end
   end
