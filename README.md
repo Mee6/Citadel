@@ -3,10 +3,11 @@
 Citadel is a ditribution based features lib.
 
 ## Features
-[x] Distributed process registry with groups support using Mnesia
-[x] Special supervisor with handoff support
-[x] Nodes discovery through redis
-[ ] Distributed supervisor
+
+- [x] Distributed process registry with groups support using Mnesia
+- [x] Special supervisor with handoff support
+- [x] Nodes discovery through redis
+- [ ] Distributed supervisor
 
 ## Installation
 
