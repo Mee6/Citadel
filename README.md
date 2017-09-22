@@ -5,9 +5,8 @@ Citadel is a ditribution based features lib.
 ## Features
 
 - [x] Distributed process registry with groups support using Mnesia
-- [x] Special supervisor with handoff support
 - [x] Nodes discovery through redis
-- [ ] Distributed supervisor
+- [x] Distributed supervisor
 
 ## Installation
 
@@ -37,9 +36,70 @@ When a process dies, it'll automatically be removed from the registry and the gr
 
 ### Citadel.Supervisor
 
-TODO
+This is a really simple distributed supervisor. Here's an example of how you can use it.
 
-### Citadel.Nodes
+```elixir
+defmodule Worker do
+	use GenServer
+
+	def start_link(id) do
+		GenServer.start_link(__MODULE__, id)
+	end
+
+	def init(id) do
+		{:ok, %{id: id}}
+	end
+	...
+end
+
+defmodule Worker.Supervisor do
+	def start_link do
+		Citadel.Supervisor.start_link(__MODULE__)
+	end
+
+	def start_worker(worker_id) do
+		Citadel.Supervisor.start_child(__MODULE__, Worker, [worker_id], id: worker_id)
+	end
+
+	def worker_lookup(worker_id) do
+		Citadel.Supervisor.lookup(__MODULE__, worker_id)
+	end
+
+	def members do
+		Citadel.Supervisor.members(__MODULE__)
+	end
+end
+```
+
+We then start a node `iex --name n1@127.0.0.1 -S mix`.
+
+```elixir
+>> Citadel.start()
+:ok
+>> Worker.Supervisor.start_link()
+{:ok, #PID<0.82.0>}
+>> # Now we start a worker
+nil
+>> Worker.Supervisor.start_worker(0)
+#PID<0.32.0>
+```
+
+Let's now connect a new node to the cluster. `iex --name n2@127.0.0.1 -S mix`.
+
+```elixir
+>> Node.connect(:"n1@127.0.0.1")
+:ok
+>> Citadel.start()
+:ok
+>> Worker.Supervisor.start_link()
+{:ok, #PID<0.32.0>}
+>> # Now if we start a worker it'll either be started here or on the n1 node. Depending on the hash of its id
+nil
+>> Worker.Supervisor.start_worker(1337)
+#PID<1.43.0>
+```
+
+### Citadel.Nodes (redis backed node discovery)
 
 If you want to enable that feature you should start your application with `CITADEL_REDIS_URL` and `CITADEL_DOMAIN` env variables. The `CITADEL_DOMAIN` is basically the name of the "cluster" you want your node to be in.
 
