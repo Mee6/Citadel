@@ -28,7 +28,13 @@ defmodule Citadel.Supervisor do
   end
 
   def start_child(sup_name, mod, args, name) do
-    node = GenServer.call(sup_name, {:which_node, name})
+    node =
+      sup_name
+      |> sup_group()
+      |> Citadel.Groups.members()
+      |> Enum.random()
+      |> GenServer.call({:which_node, name})
+
     GenServer.call({sup_name, node}, {:start_child, worker(mod, args, name)})
   end
 
