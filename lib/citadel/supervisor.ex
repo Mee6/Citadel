@@ -3,117 +3,133 @@ defmodule Citadel.Supervisor do
 
   require Logger
 
-  def worker(mod, args, name) do
-    {mod, args, name}
+  def start_link(name) do
+    GenServer.start_link(__MODULE__, name, name: name)
   end
 
-  def start_link(sup_name, workers) do
-    GenServer.start_link(__MODULE__, {sup_name, workers}, name: sup_name)
-  end
-
-  def init({sup_name, workers}) do
+  def init(name) do
     Process.flag(:trap_exit, true)
 
-    key = sup_group(sup_name)
+    # We join the superivsors group
+    # and also subscribe to join/leave events
+    key = sup_group(name)
     Citadel.Groups.join(key)
     Citadel.Groups.subsribe_groups_events(key)
 
+    # Building the ring
     ring =
       key
       |> Citadel.Groups.members()
       |> Enum.map(fn pid -> "#{:erlang.node(pid)}" end)
       |> HashRing.new()
 
-    {:ok, {sup_name, Map.new(workers, &init_worker(sup_name, &1)), ring}} 
+    state = %{
+      name: name,
+      children: %{},
+      ring:     ring
+    }
+
+    {:ok, state}
   end
 
-  def start_child(sup_name, mod, args, name) do
+  def child_spec(mod, args, opts \\ []) do
+    id       = Keyword.get(opts, :id, mod)
+    function = Keyword.get(opts, :function, :start_link)
+    {id, {mod, function, args}}
+  end
+
+  def start_child(name, mod, args, opts \\ []) do
+    start_child(name, child_spec(mod, args, opts))
+  end
+
+  def start_child(name, child_spec) do
     node =
-      sup_name
+      name
       |> sup_group()
       |> Citadel.Groups.members()
       |> Enum.random()
       |> GenServer.call({:which_node, name})
 
-    GenServer.call({sup_name, node}, {:start_child, worker(mod, args, name)})
+    GenServer.call({name, node}, {:start_child, child_spec})
   end
 
-  defp init_worker(sup_name, {_, _, worker_name}=spec) do
-    worker_pid = lookup(sup_name, worker_name)
-    init_worker(sup_name, spec, worker_pid)
+  defp init_child(name, {id, _mfa}=spec) do
+    # Checking if a process exists with that id
+    child_pid = lookup(name, id)
+    init_child(name, spec, child_pid)
   end
 
-  defp init_worker(sup_name, spec, nil) do
-    {mod, args, worker_name} = spec
-    {:ok, pid} = apply(mod, :start_link, args)
-    worker = %{spec: spec, pid: pid}
-    register(sup_name, worker_name, pid)
-    send(pid, :start)
-    Logger.info "[#{sup_name} supervisor] Started worker #{inspect worker_name} (fresh start)"
-    {worker_name, worker}
+  defp init_child(name, {id, mfa}=spec, nil) do
+    {m, f, a}  = mfa
+    {:ok, pid} = apply(m, f, a)
+    child      = %{spec: spec, pid: pid}
+    register(name, id, pid)
+    {id, child}
   end
 
-  defp init_worker(sup_name, spec, pid) do
+  defp init_child(name, {id, mfa}=spec, pid) do
     case GenServer.call(pid, :start_handoff) do
       :restart ->
-        init_worker(sup_name, spec, nil)
+        init_child(name, spec, nil)
       {:handoff, handoff_state} ->
-        {mod, args, worker_name} = spec
-        {:ok, pid} = apply(mod, :start_link, args)
-        worker = %{spec: spec, pid: pid}
-        register(sup_name, worker_name, pid)
-        :ok = GenServer.call(pid, {:end_handoff, handoff_state})
-        Logger.info "[#{sup_name} supervisor] Started #{inspect worker_name} (handoff)"
-        {worker_name, worker}
+        {id, child} = init_child(name, spec, nil)
+        :ok = GenServer.call(child.pid, {:end_handoff, handoff_state})
+        {id, child}
     end
   end
 
-  def handle_call({:which_node, name}, _from, {sup_name, workers, ring}) do
-    {:reply, :"#{HashRing.find_node(ring, name)}", {sup_name, workers, ring}}
+  def handle_call({:which_node, child_id}, _from, %{ring: ring}=state) do
+    node = :"#{HashRing.find_node(ring, child_id)}"
+    {:reply, node, state}
   end
 
-  def handle_call({:start_child, spec}, _from, {sup_name, workers, ring}) do
-    {worker_name, worker} = init_worker(sup_name, spec)
-    workers = Map.put(workers, worker_name, worker)
-    {:reply, {:ok, worker.pid}, {sup_name, workers, ring}}
+  def handle_call(:which_children, _from, %{children: children}=state) do
+    children = Map.new(children, fn {id, %{pid: pid}} -> {id, pid} end)
+    {:reply, children, state}
   end
 
-  def handle_info({:EXIT, pid, :normal}, {sup_name, workers, ring}) do
-    workers =
-      workers
-      |> Enum.filter(fn {_, worker} -> pid != worker.pid end)
+  def handle_call({:start_child, spec}, _from, %{name: name, children: children}=state) do
+    {child_id, child} = init_child(name, spec)
+    children = Map.put(children, child_id, child)
+    {:reply, {:ok, child.pid}, %{state | children: children}}
+  end
+
+  def handle_info({:EXIT, pid, :normal}, %{children: children}=state) do
+    children =
+      children
+      |> Enum.filter(fn {_, child} -> pid != child.pid end)
       |> Map.new()
-    {:noreply, {sup_name, workers, ring}}
+    {:noreply, %{state | children: children}}
   end
 
-  def handle_info({:EXIT, pid, reason}, {sup_name, workers, ring}) when reason != :normal do
-    worker = Enum.find(workers, fn {_, worker} ->
-      pid == worker.pid
+  def handle_info({:EXIT, pid, reason}, %{children: children, name: name}=state) when reason != :normal do
+    res = Enum.find(children, fn {_, child} ->
+      pid == child.pid
     end)
 
-    workers =
-      if worker do
-        {_, worker} = worker
-        {worker_name, worker} = init_worker(sup_name, worker.spec, nil)
-        Map.put(workers, worker_name, worker)
+    children =
+      if res do
+        {_, child} = res
+        {child_id, child} = init_child(name, child.spec, nil)
+        Map.put(children, child_id, child)
       else
-        workers
+        children
       end
-    {:noreply, {sup_name, workers, ring}}
+    {:noreply, %{state | children: children}}
   end
 
-  def handle_info({:groups_event, :join, _key, pid}, {sup_name, workers, ring}) do
+  def handle_info({:groups_event, :join, _key, pid}, %{ring: ring}=state) do
     remote_node = :erlang.node(pid)
     Logger.info "Adding #{remote_node} node to the ring."
     {:ok, ring} = HashRing.add_node(ring, "#{remote_node}")
-    {:noreply, {sup_name, workers, ring}}
+    {:noreply, %{state | ring: ring}}
   end
 
-  def handle_info({:groups_event, :leave, _key, pid}, {sup_name, workers, ring}) do
+  def handle_info({:groups_event, :leave, _key, pid}, %{ring: ring}=state) do
     remote_node = :erlang.node(pid)
-    Logger.info "Removing #{remote_node} node to the ring."
+    Logger.info "Removing #{remote_node} node from the ring."
     {:ok, ring} = HashRing.remove_node(ring, "#{remote_node}")
-    {:noreply, {sup_name, workers, ring}}
+    {:noreply, %{state | ring: ring}}
   end
 
   def handle_info(msg, state) do
@@ -121,23 +137,27 @@ defmodule Citadel.Supervisor do
     {:noreply, state}
   end
 
-  def lookup(sup_name, worker_name) do
-    key(sup_name, worker_name) |> Citadel.Registry.find_by_key()
+  def lookup(name, child_id) do
+    key(name, child_id) |> Citadel.Registry.find_by_key()
   end
 
-  def members(sup_name) do
-    group(sup_name) |> Citadel.Groups.members()
+  def which_children(pid, timeout \\ 5_000) do
+    GenServer.call(pid, :which_children, timeout)
   end
 
-  def key(sup_name, worker_name), do: {:citadel_sup_worker, sup_name, worker_name}
+  def members(name, timeout \\ 5_000) do
+    sup_group(name)
+    |> Citadel.Groups.members()
+    |> Enum.map(&Citadel.Supervisor.which_children(&1, timeout))
+    |> Enum.reduce(&Map.merge/2)
+  end
 
-  def group(sup_name), do: {:citadel_sup_workers, sup_name}
+  def key(name, child_id), do: {:citadel_sup_child, name, child_id}
 
-  def sup_group(sup_name), do: {:citadel_sup, sup_name}
+  def sup_group(name), do: {:citadel_sup, name}
 
-  def register(sup_name, worker_name, pid) do
-    key(sup_name, worker_name) |> Citadel.Registry.register(pid)
-    group(sup_name) |> Citadel.Groups.join(pid)
+  def register(name, child_id, pid) do
+    key(name, child_id) |> Citadel.Registry.register(pid)
   end
 end
 
