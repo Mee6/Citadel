@@ -40,34 +40,34 @@ This is a really simple distributed supervisor. Here's an example of how you can
 
 ```elixir
 defmodule Worker do
-	use GenServer
+    use GenServer
 
-	def start_link(id) do
-		GenServer.start_link(__MODULE__, id)
-	end
+    def start_link(state) do
+        GenServer.start_link(__MODULE__, state)
+    end
 
-	def init(id) do
-		{:ok, %{id: id}}
-	end
-	...
+    def init(state) do
+        {:ok, state}
+    end
+    ...
 end
 
 defmodule Worker.Supervisor do
-	def start_link do
-		Citadel.Supervisor.start_link(__MODULE__)
-	end
+    def start_link do
+        Citadel.Supervisor.start_link(__MODULE__)
+    end
 
-	def start_worker(worker_id) do
-		Citadel.Supervisor.start_child(__MODULE__, Worker, [worker_id], id: worker_id)
-	end
+    def start_worker(worker_id) do
+        Citadel.Supervisor.start_child(__MODULE__, Worker, ["kek"], id: worker_id)
+    end
 
-	def worker_lookup(worker_id) do
-		Citadel.Supervisor.lookup(__MODULE__, worker_id)
-	end
+    def worker_lookup(worker_id) do
+        Citadel.Supervisor.lookup(__MODULE__, worker_id)
+    end
 
-	def members do
-		Citadel.Supervisor.members(__MODULE__)
-	end
+    def members do
+        Citadel.Supervisor.members(__MODULE__)
+    end
 end
 ```
 
