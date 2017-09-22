@@ -6,6 +6,8 @@ defmodule Citadel.Groups do
 
   @table :groups_table
 
+  require Logger
+
   def start_link do
     GenServer.start_link(__MODULE__, [])
   end
@@ -24,12 +26,26 @@ defmodule Citadel.Groups do
 
   def members(key) do
     Mnesia.dirty_read(@table, key)
-    |> Enum.map(fn {@table, _key, pid} -> pid end)
+    |> Enum.map(fn {@table, _key, pid, _node} -> pid end)
+  end
+
+  def broadcast(key, msg, excepts \\ []) do
+    for pid <- members(key), not pid in excepts do
+      send(pid, msg)
+    end
   end
 
   def find_by_pid(pid) do
     Mnesia.dirty_index_read(@table, pid, :pid)
-    |> Enum.map(fn {@table, key, _} -> key end)
+    |> Enum.map(fn {@table, key, _, _} -> key end)
+  end
+
+  def find_by_node(node) do
+    Mnesia.dirty_index_read(@table, node, :node)
+  end
+
+  def subsribe_groups_events(key, pid \\ self()) do
+    join({:groups_events, key}, pid)
   end
 
   def handle_call({:join, key, pid}, _, state) do
@@ -40,7 +56,6 @@ defmodule Citadel.Groups do
 
   def handle_call({:leave, key, pid}, _, state) do
     db_leave(key, pid)
-    Process.demonitor(pid)
     {:reply, :ok, state}
   end
 
@@ -51,12 +66,14 @@ defmodule Citadel.Groups do
     {:noreply, state}
   end
 
-  defp db_join(key, pid) do
-    Mnesia.dirty_write({@table, key, pid})
+  def db_join(key, pid) do
+    Mnesia.dirty_write({@table, key, pid, node()})
+    broadcast({:groups_events, key}, {:groups_event, :join, key, pid}, [pid])
   end
 
-  defp db_leave(key, pid) do
-    Mnesia.dirty_delete_object({@table, key, pid})
+  def db_leave(key, pid) do
+    Mnesia.dirty_delete_object({@table, key, pid, :erlang.node(pid)})
+    broadcast({:groups_events, key}, {:groups_event, :leave, key, pid}, [pid])
   end
 
   defp partition(key) do

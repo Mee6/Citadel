@@ -7,13 +7,16 @@ defmodule Citadel.Application do
   def start(_type, _args) do
     import Supervisor.Spec, warn: false
 
+    :mnesia.start()
+
     redis_url = Plumbus.get_env("CITADEL_REDIS_URL", "redis://localhost", :string)
     domain    = Plumbus.get_env("CITADEL_DOMAIN", nil, :string)
 
     children = [
       Partitioner.worker(Registry, Citadel.Registry.Partitioner),
       Partitioner.worker(Groups, Citadel.Groups.Partitioner),
-      Nodes.worker(redis_url, domain)
+      Nodes.worker(redis_url, domain),
+      worker(Citadel.Consistency, [])
     ]
     opts = [strategy: :one_for_one, name: Citadel.Supervisor]
     Supervisor.start_link(children, opts)

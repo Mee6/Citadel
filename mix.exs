@@ -17,7 +17,8 @@ defmodule Citadel.Mixfile do
   end
 
   defp deps do
-    [{:plumbus, github: "cookkkie/plumbus", tag: "v0.1.1"},
+    [{:plumbus, github: "cookkkie/plumbus"},
+     {:ex_hash_ring, "~> 1.0"},
      {:redix, "0.6.1"}]
   end
 end

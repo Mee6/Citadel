@@ -24,14 +24,19 @@ defmodule Citadel.Registry do
 
   def find_by_key(key) do
     case Mnesia.dirty_read(@table, key) do
-      [{_, ^key, pid}] -> pid
+      [{_, ^key, pid, _node}] -> pid
       _ -> nil
     end
   end
 
   def find_by_pid(pid) do
     Mnesia.dirty_index_read(@table, pid, :pid)
-    |> Enum.map(fn {@table, key, ^pid} -> key end)
+    |> Enum.map(fn {@table, key, ^pid, _node} -> key end)
+  end
+
+  def find_by_node(node) do
+    Mnesia.dirty_index_read(@table, node, :node)
+    |> Enum.map(fn {@table, key, _pid, ^node} -> key end)
   end
 
   def handle_call({:register, key, pid}, _, state) do
@@ -50,7 +55,6 @@ defmodule Citadel.Registry do
       nil -> {:reply, :ok, state}
       pid ->
         db_unregister(key)
-        Process.demonitor(pid)
         {:reply, :ok, state}
     end
   end
@@ -62,11 +66,11 @@ defmodule Citadel.Registry do
     {:noreply, state}
   end
 
-  defp db_register(key, pid) do
-    Mnesia.dirty_write({@table, key, pid})
+  def db_register(key, pid) do
+    Mnesia.dirty_write({@table, key, pid, node()})
   end
 
-  defp db_unregister(key) do
+  def db_unregister(key) do
     Mnesia.dirty_delete(@table, key)
   end
 
