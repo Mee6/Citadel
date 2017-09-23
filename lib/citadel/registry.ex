@@ -1,14 +1,14 @@
 defmodule Citadel.Registry do
-  alias Citadel.Utils.Partitioner
+  alias Citadel.Utils.RegistryPartitioner, as: Partitioner
   alias Plumbus.Mnesia
 
   @table :registry_table
 
-  def start_link do
-    GenServer.start_link(__MODULE__, [])
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, :ok, opts)
   end
 
-  def init(_), do: {:ok, :ok}
+  def init(:ok), do: {:ok, :ok}
 
   def terminate(_reason, _state), do: :ok
 
@@ -53,7 +53,7 @@ defmodule Citadel.Registry do
   def handle_call({:unregister, key}, _, state) do
     case find_by_key(key) do
       nil -> {:reply, :ok, state}
-      pid ->
+      _pid ->
         db_unregister(key)
         {:reply, :ok, state}
     end
@@ -75,6 +75,6 @@ defmodule Citadel.Registry do
   end
 
   defp partition(key) do
-    Partitioner.which_partition(Citadel.Registry.Partitioner, key)
+    Partitioner.which_partition(key)
   end
 end

@@ -1,18 +1,18 @@
 defmodule Citadel.Groups do
   use GenServer
 
-  alias Citadel.Utils.Partitioner
+  alias Citadel.Utils.GroupsPartitioner, as: Partitioner
   alias Plumbus.Mnesia
 
   @table :groups_table
 
   require Logger
 
-  def start_link do
-    GenServer.start_link(__MODULE__, [])
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, :ok, opts)
   end
 
-  def init(_), do: {:ok, :ok}
+  def init(:ok), do: {:ok, :ok}
 
   def join(key, pid \\ self()) do
     partition(key)
@@ -77,6 +77,6 @@ defmodule Citadel.Groups do
   end
 
   defp partition(key) do
-    Partitioner.which_partition(Citadel.Groups.Partitioner, key)
+    Partitioner.which_partition(key)
   end
 end
