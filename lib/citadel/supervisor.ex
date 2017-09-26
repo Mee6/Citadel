@@ -24,9 +24,10 @@ defmodule Citadel.Supervisor do
       |> HashRing.new()
 
     state = %{
-      name: name,
-      children: %{},
-      ring:     ring
+      name:      name,
+      children:  %{},
+      pid_to_id: %{},
+      ring:      ring
     }
 
     {:ok, state}
@@ -67,7 +68,7 @@ defmodule Citadel.Supervisor do
     {id, child}
   end
 
-  defp init_child(name, {id, mfa}=spec, pid) do
+  defp init_child(name, {id, _mfa}=spec, pid) do
     case GenServer.call(pid, :start_handoff) do
       :restart ->
         init_child(name, spec, nil)
@@ -79,8 +80,7 @@ defmodule Citadel.Supervisor do
   end
 
   def handle_call({:which_node, child_id}, _from, %{ring: ring}=state) do
-    node = :"#{HashRing.find_node(ring, child_id)}"
-    {:reply, node, state}
+    {:reply, which_node(ring, child_id), state}
   end
 
   def handle_call(:which_children, _from, %{children: children}=state) do
@@ -88,34 +88,31 @@ defmodule Citadel.Supervisor do
     {:reply, children, state}
   end
 
-  def handle_call({:start_child, spec}, _from, %{name: name, children: children}=state) do
-    {child_id, child} = init_child(name, spec)
-    children = Map.put(children, child_id, child)
-    {:reply, {:ok, child.pid}, %{state | children: children}}
+  def handle_call({:start_child, spec}, _from, state) do
+    {child_id, child} = init_child(state.name, spec)
+    children          = Map.put(state.children, child_id, child)
+    pid_to_id         = Map.put(state.pid_to_id, child.pid, child_id)
+    {:reply, {:ok, child.pid}, %{state | children: children, pid_to_id: pid_to_id}}
   end
 
-  def handle_info({:EXIT, pid, :normal}, %{children: children}=state) do
-    children =
-      children
-      |> Enum.filter(fn {_, child} -> pid != child.pid end)
-      |> Map.new()
-    {:noreply, %{state | children: children}}
+  def handle_info({:EXIT, pid, :normal}, state) do
+    child_id  = Map.get(state.pid_to_id, pid)
+    children  = Map.delete(state.children, child_id)
+    pid_to_id = Map.delete(state.pid_to_id, pid)
+    {:noreply, %{state | children: children, pid_to_id: pid_to_id}}
   end
 
-  def handle_info({:EXIT, pid, reason}, %{children: children, name: name}=state) when reason != :normal do
-    res = Enum.find(children, fn {_, child} ->
-      pid == child.pid
-    end)
-
-    children =
-      if res do
-        {_, child} = res
-        {child_id, child} = init_child(name, child.spec, nil)
-        Map.put(children, child_id, child)
+  def handle_info({:EXIT, pid, reason}, state) when reason != :normal do
+    child_id = Map.get(state.pid_to_id, pid)
+    child = Map.get(state.children, child_id)
+    {children, pid_to_id} =
+      if child do
+        {id, child} = init_child(state.name, child.spec, nil)
+        {Map.put(state.children, id, child), Map.put(state.pid_to_id, pid, id)}
       else
-        children
+        {state.children, state.pid_to_id}
       end
-    {:noreply, %{state | children: children}}
+    {:noreply, %{state | children: children, pid_to_id: pid_to_id}}
   end
 
   def handle_info({:groups_event, :join, _key, pid}, %{ring: ring}=state) do
@@ -158,6 +155,10 @@ defmodule Citadel.Supervisor do
 
   def register(name, child_id, pid) do
     key(name, child_id) |> Citadel.Registry.register(pid)
+  end
+
+  defp which_node(ring, child_id) do
+    :"#{HashRing.find_node(ring, child_id)}"
   end
 end
 

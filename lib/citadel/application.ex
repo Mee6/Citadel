@@ -2,7 +2,7 @@ defmodule Citadel.Application do
   use Application
 
   alias Citadel.Utils.{GroupsPartitioner, RegistryPartitioner}
-  alias Citadel.{Registry, Groups, Nodes}
+  alias Citadel.{Nodes}
 
   def start(_type, _args) do
     import Supervisor.Spec, warn: false

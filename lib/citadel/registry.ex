@@ -2,6 +2,8 @@ defmodule Citadel.Registry do
   alias Citadel.Utils.RegistryPartitioner, as: Partitioner
   alias Plumbus.Mnesia
 
+  require Logger
+
   @table :registry_table
 
   def start_link(opts \\ []) do
