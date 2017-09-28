@@ -88,10 +88,17 @@ defmodule Citadel.Supervisor do
     {:reply, children, state}
   end
 
-  def handle_call({:start_child, spec}, _from, state) do
+  def handle_call({:start_child, spec}, _from, %{name: name}=state) do
     {child_id, child} = init_child(state.name, spec)
     children          = Map.put(state.children, child_id, child)
     pid_to_id         = Map.put(state.pid_to_id, child.pid, child_id)
+
+    try do
+      name.after_child_start(child)
+    rescue
+      e in UndefinedFunctionError -> nil
+    end
+
     {:reply, {:ok, child.pid}, %{state | children: children, pid_to_id: pid_to_id}}
   end
 
