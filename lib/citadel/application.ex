@@ -9,13 +9,10 @@ defmodule Citadel.Application do
 
     :mnesia.start()
 
-    redis_url = Plumbus.get_env("CITADEL_REDIS_URL", "redis://localhost", :string)
-    domain    = Plumbus.get_env("CITADEL_DOMAIN", nil, :string)
-
     children = [
       RegistryPartitioner.worker(),
       GroupsPartitioner.worker(),
-      Nodes.worker(redis_url, domain),
+      worker(Nodes.Supervisor, []),
       worker(Citadel.Consistency, [])
     ]
     opts = [strategy: :one_for_one, name: Citadel.Supervisor]

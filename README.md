@@ -104,6 +104,8 @@ nil
 If you want to enable that feature you should start your application with `CITADEL_REDIS_URL` and `CITADEL_DOMAIN` env variables. The `CITADEL_DOMAIN` is basically the name of the "cluster" you want your node to be in.
 
 ```elixir
+>> Citadel.Nodes.init()
+:ok
 >> Citadel.members()
 [:"node1@127.0.0.1", :"node2@127.0.0.1"]
 >> Citadel.join_cluster()
