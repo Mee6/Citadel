@@ -43,13 +43,13 @@ defmodule Citadel.Supervisor do
     start_child(name, child_spec(mod, args, opts))
   end
 
-  def start_child(name, child_spec) do
+  def start_child(name, {id, _}=child_spec) do
     node =
       name
       |> sup_group()
       |> Citadel.Groups.members()
       |> Enum.random()
-      |> GenServer.call({:which_node, name})
+      |> GenServer.call({:which_node, id})
 
     GenServer.call({name, node}, {:start_child, child_spec})
   end
@@ -165,7 +165,7 @@ defmodule Citadel.Supervisor do
   end
 
   defp which_node(ring, child_id) do
-    :"#{HashRing.find_node(ring, child_id)}"
+    :"#{HashRing.find_node(ring, inspect(child_id))}"
   end
 end
 
