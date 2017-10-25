@@ -1,17 +1,6 @@
 defmodule Citadel.Nodes do
   use GenServer
 
-  def init do
-    redis_url = Plumbus.get_env("CITADEL_REDIS_URL", "redis://localhost", :string)
-    domain    = Plumbus.get_env("CITADEL_DOMAIN", nil, :string)
-
-    {:ok, _pid} = Supervisor.start_child(
-      Citadel.Nodes.Supervisor,
-      [redis_url, domain]
-    ) 
-    :ok
-  end
-
   def start_link(redis_url, domain) do
     GenServer.start_link(__MODULE__, {redis_url, domain}, name: __MODULE__)
   end
@@ -32,7 +21,14 @@ defmodule Citadel.Nodes do
     GenServer.call(__MODULE__, :members)
   end
 
-  def join_cluster do
+  def join_cluster(domain) do
+    redis_url = Plumbus.get_env("CITADEL_REDIS_URL", "redis://localhost", :string)
+
+    {:ok, _pid} = Supervisor.start_child(
+      Citadel.Nodes.Supervisor,
+      [redis_url, domain]
+    ) 
+
     for node <- members() do
       true = Node.connect(node)
     end
