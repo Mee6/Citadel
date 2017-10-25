@@ -24,7 +24,7 @@ defmodule Citadel.Nodes do
   def join_cluster(domain) do
     redis_url = Plumbus.get_env("CITADEL_REDIS_URL", "redis://localhost", :string)
 
-    {:ok, _pid} = Supervisor.start_child(
+    Supervisor.start_child(
       Citadel.Nodes.Supervisor,
       [redis_url, domain]
     ) 
