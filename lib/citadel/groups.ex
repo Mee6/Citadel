@@ -31,7 +31,9 @@ defmodule Citadel.Groups do
 
   def broadcast(key, msg, excepts \\ []) do
     for pid <- members(key), not pid in excepts do
-      send(pid, msg)
+      if :erlang.node(pid) == :erlang.node() do
+        send(pid, msg)
+      end
     end
   end
 
