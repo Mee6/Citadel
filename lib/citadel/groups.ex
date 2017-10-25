@@ -31,6 +31,12 @@ defmodule Citadel.Groups do
 
   def broadcast(key, msg, excepts \\ []) do
     for pid <- members(key), not pid in excepts do
+        send(pid, msg)
+    end
+  end
+
+  def broadcast_local(key, msg, excepts \\ []) do
+    for pid <- members(key), not pid in excepts do
       if :erlang.node(pid) == :erlang.node() do
         send(pid, msg)
       end
@@ -75,7 +81,7 @@ defmodule Citadel.Groups do
 
   def db_leave(key, pid) do
     Mnesia.dirty_delete_object({@table, key, pid, :erlang.node(pid)})
-    broadcast({:groups_events, key}, {:groups_event, :leave, key, pid}, [pid])
+    broadcast_local({:groups_events, key}, {:groups_event, :leave, key, pid}, [pid])
   end
 
   defp partition(key) do
