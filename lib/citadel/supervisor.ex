@@ -16,6 +16,15 @@ defmodule Citadel.Supervisor do
     Citadel.Groups.join(key)
     Citadel.Groups.subsribe_groups_events(key)
 
+    display_name = "#{name}"
+    display_name = 
+      if String.starts_with?(display_name, "Elixir.") do
+        String.slice(display_name, 7..-1)
+      else
+        display_name
+      end
+    Logger.metadata(supervisor_name: display_name)
+
     # Building the ring
     ring =
       key
@@ -96,7 +105,7 @@ defmodule Citadel.Supervisor do
     try do
       name.after_child_start(child)
     rescue
-      e in UndefinedFunctionError -> nil
+      _e in UndefinedFunctionError -> nil
     end
 
     {:reply, {:ok, child.pid}, %{state | children: children, pid_to_id: pid_to_id}}
