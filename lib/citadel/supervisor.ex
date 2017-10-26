@@ -63,28 +63,21 @@ defmodule Citadel.Supervisor do
     GenServer.call({name, node}, {:start_child, child_spec})
   end
 
-  defp init_child(name, {id, _mfa}=spec) do
+  def leave(name) do
+    GenServer.call(name, :leave)
+  end
+
+  defp init_child(name, {id, mfa}=spec, force \\ false) do
     # Checking if a process exists with that id
     child_pid = lookup(name, id)
-    init_child(name, spec, child_pid)
-  end
-
-  defp init_child(name, {id, mfa}=spec, nil) do
-    {m, f, a}  = mfa
-    {:ok, pid} = apply(m, f, a)
-    child      = %{spec: spec, pid: pid}
-    register(name, id, pid)
-    {id, child}
-  end
-
-  defp init_child(name, {id, _mfa}=spec, pid) do
-    case GenServer.call(pid, :start_handoff) do
-      :restart ->
-        init_child(name, spec, nil)
-      {:handoff, handoff_state} ->
-        {id, child} = init_child(name, spec, nil)
-        :ok = GenServer.call(child.pid, {:end_handoff, handoff_state})
-        {id, child}
+    if child_pid != nil and force == false do
+      {:error, :already_started}
+    else
+      {m, f, a}  = mfa
+      {:ok, pid} = apply(m, f, a)
+      child      = %{spec: spec, pid: pid}
+      register(name, id, pid, force)
+      {id, child}
     end
   end
 
@@ -98,17 +91,33 @@ defmodule Citadel.Supervisor do
   end
 
   def handle_call({:start_child, spec}, _from, %{name: name}=state) do
-    {child_id, child} = init_child(state.name, spec)
-    children          = Map.put(state.children, child_id, child)
-    pid_to_id         = Map.put(state.pid_to_id, child.pid, child_id)
+    case init_child(state.name, spec) do
+      {:error, e} ->
+        {:reply, {:error, e}, state}
+      {child_id, child} -> 
+        children  = Map.put(state.children, child_id, child)
+        pid_to_id = Map.put(state.pid_to_id, child.pid, child_id)
 
-    try do
-      name.after_child_start(child)
-    rescue
-      _e in UndefinedFunctionError -> nil
+        try do
+          name.after_child_start(child)
+        rescue
+          _e in UndefinedFunctionError -> nil
+        end
+
+        {:reply, {:ok, child.pid}, %{state | children: children, pid_to_id: pid_to_id}}
     end
+  end
 
-    {:reply, {:ok, child.pid}, %{state | children: children, pid_to_id: pid_to_id}}
+  def handle_call(:leave, _from, state) do
+    Logger.info "Leaving cluster..."
+    key = sup_group(state.name)
+    Citadel.Groups.unsubsribe_groups_events(key)
+    Citadel.Groups.leave(key)
+
+    {:ok, ring} = HashRing.remove_node(state.ring, "#{node()}")
+    state       = handoff_check(%{state | ring: ring})
+
+    {:reply, :ok, state}
   end
 
   def handle_info({:EXIT, pid, :normal}, state) do
@@ -123,7 +132,7 @@ defmodule Citadel.Supervisor do
     child = Map.get(state.children, child_id)
     {children, pid_to_id} =
       if child do
-        {id, child} = init_child(state.name, child.spec, nil)
+        {id, child} = init_child(state.name, child.spec, true)
         {Map.put(state.children, id, child), Map.put(state.pid_to_id, pid, id)}
       else
         {state.children, state.pid_to_id}
@@ -135,7 +144,7 @@ defmodule Citadel.Supervisor do
     remote_node = :erlang.node(pid)
     Logger.info "Adding #{remote_node} node to the ring."
     {:ok, ring} = HashRing.add_node(ring, "#{remote_node}")
-    {:noreply, %{state | ring: ring}}
+    {:noreply, handoff_check(%{state | ring: ring})}
   end
 
   def handle_info({:groups_event, :leave, _key, pid}, %{ring: ring}=state) do
@@ -145,9 +154,47 @@ defmodule Citadel.Supervisor do
     {:noreply, %{state | ring: ring}}
   end
 
+  def handle_info({:start_handoff, child_id, child}, state) do
+    {id, child} = start_handoff(state.name, child_id, child)
+    children    = Map.put(state.children, id, child)
+    {:noreply, %{state | children: children}}
+  end
+
   def handle_info(msg, state) do
     Logger.warn "Unhandled message #{inspect msg}"
     {:noreply, state}
+  end
+
+  defp handoff_check(state) do
+    children = Enum.filter(
+      state.children,
+      fn {child_id, child} ->
+        new_node = which_node(state.ring, child_id)
+        if new_node != :erlang.node() do
+          send({state.name, new_node}, {:start_handoff, child_id, child})
+          false
+        else
+          true
+        end
+      end
+    ) |> Map.new()
+
+    before = Map.values(state.children) |> length()
+    after_ = Map.values(children) |> length()
+    Logger.info "Handed off #{before - after_} children"
+
+    %{state | children: children}
+  end
+
+  def start_handoff(name, _child_id, child) do
+    case GenServer.call(child.pid, :start_handoff) do
+      :restart ->
+        init_child(name, child.spec, true)
+      {:handoff, handoff_state} ->
+        {id, child} = init_child(name, child.spec, true)
+        :ok = GenServer.call(child.pid, {:end_handoff, handoff_state})
+        {id, child}
+    end
   end
 
   def lookup(name, child_id) do
@@ -169,8 +216,8 @@ defmodule Citadel.Supervisor do
 
   def sup_group(name), do: {:citadel_sup, name}
 
-  def register(name, child_id, pid) do
-    key(name, child_id) |> Citadel.Registry.register(pid)
+  def register(name, child_id, pid, force \\ false) do
+    key(name, child_id) |> Citadel.Registry.register(pid, force)
   end
 
   defp which_node(ring, child_id) do
