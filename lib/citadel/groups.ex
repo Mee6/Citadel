@@ -56,6 +56,10 @@ defmodule Citadel.Groups do
     join({:groups_events, key}, pid)
   end
 
+  def unsubsribe_groups_events(key, pid \\ self()) do
+    join({:groups_events, key}, pid)
+  end
+
   def handle_call({:join, key, pid}, _, state) do
     db_join(key, pid)
     Process.monitor(pid)
