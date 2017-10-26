@@ -14,9 +14,9 @@ defmodule Citadel.Registry do
 
   def terminate(_reason, _state), do: :ok
 
-  def register(key, pid \\ self()) do
+  def register(key, pid \\ self(), force \\ false) do
     partition(key)
-    |> GenServer.call({:register, key, pid})
+    |> GenServer.call({:register, key, pid, force})
   end
 
   def unregister(key) do
@@ -41,13 +41,14 @@ defmodule Citadel.Registry do
     |> Enum.map(fn {@table, key, _pid, ^node} -> key end)
   end
 
-  def handle_call({:register, key, pid}, _, state) do
-    case find_by_key(key) do
-      nil ->
+  def handle_call({:register, key, pid, force}, _, state) do
+    old_pid = find_by_key(key)
+    cond do
+      old_pid == nil or force == true ->
         db_register(key, pid)
         Process.monitor(pid)
         {:reply, :ok, state}
-      _pid ->
+      true ->
         {:reply, {:error, :already_exists}, state}
     end
   end
@@ -63,7 +64,8 @@ defmodule Citadel.Registry do
 
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
     for key <- find_by_pid(pid) do
-      db_unregister(key)
+      Logger.info "unregister #{inspect key}"
+      db_unregister(key, pid)
     end
     {:noreply, state}
   end
@@ -74,6 +76,11 @@ defmodule Citadel.Registry do
 
   def db_unregister(key) do
     Mnesia.dirty_delete(@table, key)
+  end
+
+  def db_unregister(key, pid) do
+    node = :erlang.node(pid)
+    Mnesia.dirty_delete_object({@table, key, pid, node})
   end
 
   defp partition(key) do
