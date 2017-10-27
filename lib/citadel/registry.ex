@@ -64,7 +64,6 @@ defmodule Citadel.Registry do
 
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
     for key <- find_by_pid(pid) do
-      Logger.info "unregister #{inspect key}"
       db_unregister(key, pid)
     end
     {:noreply, state}
