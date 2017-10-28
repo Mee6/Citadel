@@ -85,7 +85,7 @@ defmodule Citadel.Groups do
 
   def db_leave(key, pid) do
     Mnesia.dirty_delete_object({@table, key, pid, :erlang.node(pid)})
-    broadcast_local({:groups_events, key}, {:groups_event, :leave, key, pid}, [pid])
+    broadcast({:groups_events, key}, {:groups_event, :leave, key, pid}, [pid])
   end
 
   defp partition(key) do
