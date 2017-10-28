@@ -1,6 +1,8 @@
 defmodule Citadel.Nodes do
   use GenServer
 
+  require Logger
+
   def start_link(redis_url, domain) do
     GenServer.start_link(__MODULE__, {redis_url, domain}, name: __MODULE__)
   end
@@ -30,6 +32,7 @@ defmodule Citadel.Nodes do
     ) 
 
     for node <- members() do
+      Logger.info "Connecting to node #{node}..."
       true = Node.connect(node)
     end
   end
