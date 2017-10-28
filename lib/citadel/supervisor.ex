@@ -110,6 +110,7 @@ defmodule Citadel.Supervisor do
 
   def handle_call(:leave, _from, state) do
     Logger.info "Leaving cluster..."
+
     key = sup_group(state.name)
     Citadel.Groups.unsubsribe_groups_events(key)
     Citadel.Groups.leave(key)
@@ -151,7 +152,7 @@ defmodule Citadel.Supervisor do
     remote_node = :erlang.node(pid)
     Logger.info "Removing #{remote_node} node from the ring."
     {:ok, ring} = HashRing.remove_node(ring, "#{remote_node}")
-    {:noreply, %{state | ring: ring}}
+    {:noreply, handoff_check(%{state | ring: ring})}
   end
 
   def handle_info({:start_handoff, child_id, child}, state) do
